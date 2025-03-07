@@ -1,4 +1,6 @@
-// Connect to the server using Socket.io
+// Import the collisions data from the separate file
+import collisions from './collisions.js';
+
 const socket = io();
 
 const canvas = document.getElementById("gameCanvas");
@@ -9,22 +11,23 @@ const playerCountDisplay = document.getElementById("playerCount");
 canvas.width = 1550;
 canvas.height = 700;
 
-// Add Sprite class definition
 class Sprite {
     constructor({ position, image, frames = { max: 1 }, sprites = {}, name = "", id = null }) {
         this.position = position;
         this.image = image;
         this.frames = frames;
         this.sprites = sprites;
-        this.width = 30; // Default player width
-        this.height = 30; // Default player height
-        this.speed = 3; // Player movement speed
+        this.width = 30; 
+        this.height = 30; 
+        this.speed = 3; 
         this.frameIndex = 0;
         this.frameCount = 0;
         this.moving = false;
-        this.lastDirection = 'down'; // Default direction
-        this.name = name; // Player name
-        this.id = id; // Socket ID for multiplayer
+        this.lastDirection = 'down';
+        this.name = name;
+        this.id = id; 
+        this.showInteractionMenu = false; 
+        this.interactingWith = null; 
     }
 
     draw() {
@@ -78,6 +81,50 @@ class Sprite {
                 this.position.y - 8
             );
         }
+
+        // Draw interaction menu if active
+        if (this.showInteractionMenu) {
+            this.drawInteractionMenu();
+        }
+    }
+
+    drawInteractionMenu() {
+        // Position the menu above the player
+        const menuX = this.position.x - 30;
+        const menuY = this.position.y - 70;
+        const menuWidth = 90;
+        const menuHeight = 45;
+        
+        // Draw the dialogue box background
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+        
+        // Draw the border
+        ctx.strokeStyle = "#4286f4";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+        
+        // Add menu options
+        ctx.font = "11px Arial";
+        ctx.textAlign = "center";
+        
+        // Chat option
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("Chat", menuX + menuWidth/2, menuY + 15);
+        
+        // Voice chat option
+        ctx.fillText("Voice Chat", menuX + menuWidth/2, menuY + 32);
+        
+        // Draw a little pointer at the bottom of the dialogue box
+        ctx.beginPath();
+        ctx.moveTo(menuX + menuWidth/2 - 8, menuY + menuHeight);
+        ctx.lineTo(menuX + menuWidth/2 + 8, menuY + menuHeight);
+        ctx.lineTo(menuX + menuWidth/2, menuY + menuHeight + 8);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.fill();
+        ctx.strokeStyle = "#4286f4";
+        ctx.stroke();
     }
 
     setDirection(direction) {
@@ -105,7 +152,7 @@ class Sprite {
 const mapImage = new Image();
 mapImage.src = "images/map2.png";
 
-// Add background image for edges
+
 const backgroundImage = new Image();
 backgroundImage.src = "images/background.png";
 
@@ -152,10 +199,19 @@ const keys = {
     ArrowUp: false,
     ArrowDown: false,
     ArrowLeft: false,
-    ArrowRight: false
+    ArrowRight: false,
+    e: false 
 };
 
-window.addEventListener("keydown", (e) => keys[e.key] = true);
+window.addEventListener("keydown", (e) => {
+    keys[e.key] = true;
+    
+    // Check for 'E' key press to initiate player interaction
+    if (e.key === 'e' || e.key === 'E') {
+        checkPlayerInteraction();
+    }
+});
+
 window.addEventListener("keyup", (e) => keys[e.key] = false);
 
 // Update player name when input changes
@@ -164,6 +220,43 @@ playerNameInput.addEventListener("change", () => {
     player.name = newName;
     socket.emit('updateName', newName);
 });
+
+// Function to check for nearby players for interaction
+function checkPlayerInteraction() {
+    if (!player) return;
+    
+    // Close any existing interaction menu first
+    if (player.showInteractionMenu) {
+        player.showInteractionMenu = false;
+        player.interactingWith = null;
+        return;
+    }
+    
+    // Check if any other player is near
+    const interactionRange = 50; // Distance for interaction
+    
+    for (const id in otherPlayers) {
+        const otherPlayer = otherPlayers[id];
+        
+        // Calculate distance between players
+        const dx = player.position.x - otherPlayer.position.x;
+        const dy = player.position.y - otherPlayer.position.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= interactionRange) {
+            // Show interaction menu if player is within range
+            player.showInteractionMenu = true;
+            player.interactingWith = id;
+            
+            // Emit an event to the server that this player wants to interact
+            socket.emit('playerInteraction', {
+                targetId: id
+            });
+            
+            return; // Exit after finding the first nearby player
+        }
+    }
+}
 
 // *Boundary Class*
 class Boundary {
@@ -180,31 +273,10 @@ class Boundary {
     }
 }
 
-// *Collision Map*
-const collisions = [
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
-    [1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
-    [1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-];
-
 const boundaries = [];
 const offsetX = 0, offsetY = 0;
 
+// Generate boundaries from collision data
 collisions.forEach((row, i) => {
     row.forEach((cell, j) => {
         if (cell === 1) {
@@ -239,6 +311,123 @@ backgroundImage.onload = () => {
     bgPattern = ctx.createPattern(backgroundImage, 'repeat');
 };
 
+// Create and show name input dialog
+function showNameInputDialog() {
+    // Create a modal dialog div
+    const modal = document.createElement('div');
+    modal.style.position = 'fixed';
+    modal.style.left = '0';
+    modal.style.top = '0';
+    modal.style.width = '100%';
+    modal.style.height = '100%';
+    modal.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    modal.style.display = 'flex';
+    modal.style.justifyContent = 'center';
+    modal.style.alignItems = 'center';
+    modal.style.zIndex = '1000';
+    
+    // Create dialog content
+    const dialog = document.createElement('div');
+    dialog.style.backgroundColor = 'white';
+    dialog.style.padding = '30px';
+    dialog.style.borderRadius = '10px';
+    dialog.style.width = '300px';
+    dialog.style.textAlign = 'center';
+    
+    // Add title
+    const title = document.createElement('h2');
+    title.textContent = 'Welcome to the Game!';
+    title.style.marginBottom = '20px';
+    title.style.color = '#333';
+    
+    // Add name input field
+    const label = document.createElement('label');
+    label.textContent = 'Enter your player name:';
+    label.style.display = 'block';
+    label.style.marginBottom = '10px';
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = `Player-${socket.id ? socket.id.substr(0, 4) : 'New'}`;
+    input.style.width = '90%';
+    input.style.padding = '8px';
+    input.style.marginBottom = '20px';
+    input.style.borderRadius = '4px';
+    input.style.border = '1px solid #ccc';
+    
+    // Add submit button
+    const button = document.createElement('button');
+    button.textContent = 'Start Playing!';
+    button.style.padding = '10px 20px';
+    button.style.backgroundColor = '#4CAF50';
+    button.style.color = 'white';
+    button.style.border = 'none';
+    button.style.borderRadius = '4px';
+    button.style.cursor = 'pointer';
+    
+    // Event handler for button click
+    button.addEventListener('click', () => {
+        const playerName = input.value.trim() || input.placeholder;
+        
+        // Update player name and input field
+        if (player) {
+            player.name = playerName;
+            playerNameInput.value = playerName;
+            socket.emit('updateName', playerName);
+        }
+        
+        // Remove the modal
+        document.body.removeChild(modal);
+    });
+    
+    // Handle Enter key press
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            button.click();
+        }
+    });
+    
+    // Assemble the dialog
+    dialog.appendChild(title);
+    dialog.appendChild(label);
+    dialog.appendChild(input);
+    dialog.appendChild(button);
+    modal.appendChild(dialog);
+    
+    // Add to document
+    document.body.appendChild(modal);
+    
+    // Focus the input field
+    setTimeout(() => input.focus(), 100);
+}
+
+// Add a tutorial message for interaction
+function showInteractionTutorial() {
+    const tutorial = document.createElement('div');
+    tutorial.style.position = 'fixed';
+    tutorial.style.bottom = '20px';
+    tutorial.style.left = '50%';
+    tutorial.style.transform = 'translateX(-50%)';
+    tutorial.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    tutorial.style.color = 'white';
+    tutorial.style.padding = '10px 20px';
+    tutorial.style.borderRadius = '5px';
+    tutorial.style.textAlign = 'center';
+    tutorial.style.zIndex = '999';
+    tutorial.id = 'interaction-tutorial';
+    tutorial.innerHTML = 'Press <strong>E</strong> to interact with nearby players';
+    
+    document.body.appendChild(tutorial);
+    
+    // Remove the tutorial after 5 seconds
+    setTimeout(() => {
+        const tutorialElement = document.getElementById('interaction-tutorial');
+        if (tutorialElement) {
+            tutorialElement.remove();
+        }
+    }, 5000);
+}
+
 // Utility function to create a new player sprite
 function createPlayerSprite(playerInfo) {
     return new Sprite({
@@ -259,6 +448,55 @@ function createPlayerSprite(playerInfo) {
     });
 }
 
+// Function to check for players in close proximity
+function checkNearbyPlayers() {
+    if (!player) return;
+    
+    const interactionRange = 50; // Distance for automatic interaction detection
+    let foundNearbyPlayer = false;
+    
+    for (const id in otherPlayers) {
+        const otherPlayer = otherPlayers[id];
+        
+        // Calculate distance between players
+        const dx = player.position.x - otherPlayer.position.x;
+        const dy = player.position.y - otherPlayer.position.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= interactionRange) {
+            // Display a hint to press E for interaction
+            const hintElement = document.getElementById('interaction-hint');
+            if (!hintElement) {
+                const hint = document.createElement('div');
+                hint.id = 'interaction-hint';
+                hint.style.position = 'fixed';
+                hint.style.bottom = '50px';
+                hint.style.left = '50%';
+                hint.style.transform = 'translateX(-50%)';
+                hint.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                hint.style.color = 'white';
+                hint.style.padding = '5px 10px';
+                hint.style.borderRadius = '3px';
+                hint.style.fontSize = '12px';
+                hint.style.zIndex = '999';
+                hint.textContent = 'Press E to interact';
+                document.body.appendChild(hint);
+            }
+            
+            foundNearbyPlayer = true;
+            break;
+        }
+    }
+    
+    // Remove the hint if no player is nearby
+    if (!foundNearbyPlayer) {
+        const hint = document.getElementById('interaction-hint');
+        if (hint) {
+            hint.remove();
+        }
+    }
+}
+
 // *Socket.io Event Handlers*
 socket.on('currentPlayers', (players) => {
     // Create the local player
@@ -277,6 +515,12 @@ socket.on('currentPlayers', (players) => {
         
         // Update player count
         updatePlayerCount();
+        
+        // Show the name input dialog for the new player
+        showNameInputDialog();
+        
+        // Show interaction tutorial
+        setTimeout(showInteractionTutorial, 3000);
     }
 });
 
@@ -304,6 +548,12 @@ socket.on('playerUpdated', (playerInfo) => {
 socket.on('playerDisconnected', (playerId) => {
     delete otherPlayers[playerId];
     updatePlayerCount();
+});
+
+// Handle player interaction responses
+socket.on('playerInteractionResponse', (data) => {
+    // This would handle the response when another player accepts your interaction
+    // For now, we're just showing the dialogue box
 });
 
 // Update player count display
@@ -383,7 +633,16 @@ function animate() {
             direction: player.lastDirection,
             moving: player.moving
         });
+        
+        // Close interaction menu when moving
+        if (player.showInteractionMenu) {
+            player.showInteractionMenu = false;
+            player.interactingWith = null;
+        }
     }
+
+    // Check for nearby players every frame
+    checkNearbyPlayers();
 
     // *Update Camera Position to Follow Player*
     camera.x = player.position.x - canvas.width / (2 * camera.zoom);
