@@ -11,9 +11,9 @@ const CANVAS_WIDTH = 1550;
 const CANVAS_HEIGHT = 700;
 const INTERACTION_RANGE = 50;
 const BOUNDARY_SIZE = 32;
-const FRAME_DELAY = 10; 
-const TUTORIAL_DURATION = 5000; 
-const DIALOGUE_DURATION = 4000; 
+const FRAME_DELAY = 10; // Animation frame delay
+const TUTORIAL_DURATION = 5000; // 5 seconds
+const DIALOGUE_DURATION = 4000; // 4 seconds for automatic dialogue
 
 // Set canvas size
 canvas.width = CANVAS_WIDTH;
@@ -669,19 +669,8 @@ socket.on('currentPlayers', (players) => {
     const playerInfo = players[socket.id];
     
     if (playerInfo) {
-        // Find a valid spawn position
-        const validPosition = findValidSpawnPosition();
-        playerInfo.position = validPosition;
-        
         player = createPlayerSprite(playerInfo);
         playerNameInput.value = playerInfo.name;
-        
-        // Update server with new valid position
-        socket.emit('playerMovement', {
-            position: validPosition,
-            direction: 'down',
-            moving: false
-        });
         
         // Add other existing players
         Object.keys(players).forEach((id) => {
@@ -764,30 +753,6 @@ socket.on('playerInteractionResponse', (data) => {
         otherPlayers[data.fromId].showDialogue(data.message);
     }
 });
-
-// Add these functions after the existing utility functions and before the socket handlers
-function isValidPosition(x, y) {
-    return !boundaries.some(boundary =>
-        x < boundary.x + boundary.width &&
-        x + 30 > boundary.x &&  // 30 is player width
-        y < boundary.y + boundary.height &&
-        y + 30 > boundary.y     // 30 is player height
-    );
-}
-
-function findValidSpawnPosition() {
-    // Try 100 times to find a valid position
-    for (let i = 0; i < 100; i++) {
-        const x = Math.floor(Math.random() * (mapBounds.width - 60)) + 30;
-        const y = Math.floor(Math.random() * (mapBounds.height - 60)) + 30;
-        
-        if (isValidPosition(x, y)) {
-            return { x, y };
-        }
-    }
-    // Fallback to a known safe position if no valid position is found
-    return { x: 100, y: 100 };
-}
 
 // Game Loop
 function animate() {

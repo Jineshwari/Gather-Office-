@@ -1,0 +1,526 @@
+import collisions from './collisions.js';
+
+const socket = io();
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const playerNameInput = document.getElementById("playerNameInput");
+const playerCountDisplay = document.getElementById("playerCount");
+
+// Constants
+const CANVAS_WIDTH = 1550;
+const CANVAS_HEIGHT = 700;
+const INTERACTION_RANGE = 50;
+const BOUNDARY_SIZE = 32;
+const FRAME_DELAY = 10; // Animation frame delay
+const TUTORIAL_DURATION = 5000; // 5 seconds
+
+// Set canvas size
+canvas.width = CANVAS_WIDTH;
+canvas.height = CANVAS_HEIGHT;
+
+class Sprite {
+    constructor({ position, image, frames = { max: 1 }, sprites = {}, name = "", id = null }) {
+        this.position = position;
+        this.image = image;
+        this.frames = frames;
+        this.sprites = sprites;
+        this.name = name;
+        this.id = id;
+        this.width = 30;
+        this.height = 30;
+        this.speed = 3;
+        this.frameIndex = 0;
+        this.frameCount = 0;
+        this.moving = false;
+        this.lastDirection = "down";
+        this.showInteractionMenu = false;
+        this.interactingWith = null;
+    }
+
+    draw() {
+        const frameWidth = this.image.width / this.frames.max;
+        ctx.drawImage(
+            this.image,
+            this.frameIndex * frameWidth, 0, frameWidth, this.image.height,
+            this.position.x, this.position.y, this.width, this.height
+        );
+
+        // Animate frames only when moving
+        if (this.moving && ++this.frameCount % FRAME_DELAY === 0) {
+            this.frameIndex = (this.frameIndex + 1) % this.frames.max;
+        } else if (!this.moving) {
+            this.frameIndex = 0;
+        }
+
+        if (this.name) this.drawNameTag();
+        if (this.showInteractionMenu) this.drawInteractionMenu();
+    }
+
+    drawNameTag() {
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+
+        const textWidth = ctx.measureText(this.name).width;
+        const padding = 4;
+        const bgX = this.position.x + this.width / 2 - textWidth / 2 - padding;
+        const bgY = this.position.y - 20;
+        const bgWidth = textWidth + padding * 2;
+        const bgHeight = 18;
+
+        // Background for the name tag
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+
+        // Name text
+        ctx.fillStyle = "white";
+        ctx.fillText(this.name, this.position.x + this.width / 2, this.position.y - 8);
+    }
+
+    drawInteractionMenu() {
+        const menuX = this.position.x - 30;
+        const menuY = this.position.y - 70;
+        const menuWidth = 90;
+        const menuHeight = 45;
+
+        // Draw menu background and border
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+        ctx.strokeStyle = "#4286f4";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+
+        // Draw menu options
+        ctx.font = "11px Arial";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("Chat", menuX + menuWidth / 2, menuY + 15);
+        ctx.fillText("Voice Chat", menuX + menuWidth / 2, menuY + 32);
+
+        // Draw pointer
+        const pointerX = menuX + menuWidth / 2;
+        ctx.beginPath();
+        ctx.moveTo(pointerX - 8, menuY + menuHeight);
+        ctx.lineTo(pointerX + 8, menuY + menuHeight);
+        ctx.lineTo(pointerX, menuY + menuHeight + 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    setDirection(direction) {
+        if (this.lastDirection !== direction) {
+            this.image = this.sprites[direction] || this.image;
+            this.lastDirection = direction;
+        }
+    }
+}
+
+class Boundary {
+    constructor({ x, y }) {
+        this.x = x;
+        this.y = y;
+        this.width = BOUNDARY_SIZE - 5;
+        this.height = BOUNDARY_SIZE - 10;
+    }
+    
+    draw() {
+        ctx.fillStyle = "rgba(255, 0, 0, 0)";
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+    }
+}
+
+// Load assets with a helper function
+function loadImage(src) {
+    const img = new Image();
+    img.src = src;
+    return img;
+}
+
+// Load all images
+const mapImage = loadImage("images/map2.png");
+const backgroundImage = loadImage("images/background.png");
+const playerImages = {
+    down: loadImage('images/playerDown.png'),
+    up: loadImage('images/playerUp.png'),
+    left: loadImage('images/playerLeft.png'),
+    right: loadImage('images/playerRight.png')
+};
+
+// Game state
+const otherPlayers = {};
+let player;
+let bgPattern;
+const mapBounds = { width: 1024, height: 576 };
+const camera = { x: 0, y: 0, zoom: 1.5 };
+const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, e: false };
+
+// Movement directions lookup
+const movementDirections = [
+    { key: 'ArrowUp', dx: 0, dy: -1, dir: 'up' },
+    { key: 'ArrowDown', dx: 0, dy: 1, dir: 'down' },
+    { key: 'ArrowLeft', dx: -1, dy: 0, dir: 'left' },
+    { key: 'ArrowRight', dx: 1, dy: 0, dir: 'right' }
+];
+
+// Create boundaries from collision data
+const boundaries = [];
+collisions.forEach((row, i) => {
+    row.forEach((cell, j) => {
+        if (cell === 1) {
+            boundaries.push(new Boundary({
+                x: j * BOUNDARY_SIZE,
+                y: i * BOUNDARY_SIZE
+            }));
+        }
+    });
+});
+
+// Event listeners
+window.addEventListener("keydown", (e) => {
+    keys[e.key] = true;
+    if (e.key === 'e' || e.key === 'E') {
+        checkPlayerInteraction();
+    }
+});
+
+window.addEventListener("keyup", (e) => keys[e.key] = false);
+
+playerNameInput.addEventListener("change", () => {
+    const newName = playerNameInput.value.trim() || `Player-${socket.id.substr(0, 4)}`;
+    player.name = newName;
+    socket.emit('updateName', newName);
+});
+
+// Setup the background pattern when loaded
+backgroundImage.onload = () => {
+    bgPattern = ctx.createPattern(backgroundImage, 'repeat');
+};
+
+// Utility Functions
+function createPlayerSprite({ position, direction, name, id }) {
+    return new Sprite({
+        position,
+        image: playerImages[direction] || playerImages.down,
+        frames: { max: 4 },
+        sprites: playerImages,
+        name,
+        id
+    });
+}
+
+function checkCollision(x, y) {
+    return boundaries.some(boundary =>
+        x < boundary.x + boundary.width &&
+        x + player.width > boundary.x &&
+        y < boundary.y + boundary.height &&
+        y + player.height > boundary.y
+    );
+}
+
+function calculateDistance(pos1, pos2) {
+    const dx = pos1.x - pos2.x;
+    const dy = pos1.y - pos2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function checkPlayerInteraction() {
+    if (!player) return;
+
+    // Toggle interaction menu off if already open
+    if (player.showInteractionMenu) {
+        player.showInteractionMenu = false;
+        player.interactingWith = null;
+        return;
+    }
+
+    const nearbyPlayer = Object.entries(otherPlayers).find(([id, otherPlayer]) => 
+        calculateDistance(player.position, otherPlayer.position) <= INTERACTION_RANGE
+    );
+
+    if (nearbyPlayer) {
+        const [id] = nearbyPlayer;
+        player.showInteractionMenu = true;
+        player.interactingWith = id;
+        socket.emit('playerInteraction', { targetId: id });
+    }
+}
+
+function checkNearbyPlayers() {
+    if (!player) return;
+
+    let hint = document.getElementById('interaction-hint');
+    const hasNearbyPlayer = Object.values(otherPlayers).some(otherPlayer => 
+        calculateDistance(player.position, otherPlayer.position) <= INTERACTION_RANGE
+    );
+
+    if (hasNearbyPlayer) {
+        if (!hint) {
+            hint = Object.assign(document.createElement('div'), {
+                id: 'interaction-hint',
+                textContent: 'Press E to interact',
+                style: `
+                    position: fixed;
+                    bottom: 50px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background-color: rgba(0,0,0,0.7);
+                    color: white;
+                    padding: 5px 10px;
+                    border-radius: 3px;
+                    font-size: 12px;
+                    z-index: 999;
+                `
+            });
+            document.body.appendChild(hint);
+        }
+    } else if (hint) {
+        hint.remove();
+    }
+}
+
+function updatePlayerCount() {
+    const count = 1 + Object.keys(otherPlayers).length;
+    playerCountDisplay.textContent = `Players: ${count}`;
+}
+
+function showNameInputDialog() {
+    if (document.getElementById('name-input-modal')) return;
+
+    const modal = Object.assign(document.createElement('div'), {
+        id: 'name-input-modal',
+        style: `
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        `
+    });
+
+    const dialog = Object.assign(document.createElement('div'), {
+        style: `
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            width: 300px;
+            text-align: center;
+        `
+    });
+
+    const title = Object.assign(document.createElement('h2'), {
+        textContent: 'Welcome to the Game!',
+        style: 'margin-bottom: 20px; color: #333;'
+    });
+
+    const input = Object.assign(document.createElement('input'), {
+        type: 'text',
+        placeholder: `Player-${socket.id ? socket.id.substring(0, 4) : 'New'}`,
+        style: `
+            width: 90%;
+            padding: 8px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        `
+    });
+
+    const button = Object.assign(document.createElement('button'), {
+        textContent: 'Start Playing!',
+        style: `
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        `,
+        onclick: () => {
+            const playerName = input.value.trim() || input.placeholder;
+            if (player) {
+                player.name = playerName;
+                playerNameInput.value = playerName;
+                socket.emit('updateName', playerName);
+            }
+            modal.remove();
+        }
+    });
+
+    input.addEventListener('keypress', (e) => e.key === 'Enter' && button.click());
+
+    dialog.append(title, input, button);
+    modal.appendChild(dialog);
+    document.body.appendChild(modal);
+
+    setTimeout(() => input.focus(), 100);
+}
+
+function showInteractionTutorial() {
+    if (document.getElementById('interaction-tutorial')) return;
+
+    const tutorial = Object.assign(document.createElement('div'), {
+        id: 'interaction-tutorial',
+        style: `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-align: center;
+            z-index: 999;
+        `,
+        innerHTML: 'Press <strong>E</strong> to interact with nearby players'
+    });
+
+    document.body.appendChild(tutorial);
+    setTimeout(() => tutorial.remove(), TUTORIAL_DURATION);
+}
+
+// Socket.io Event Handlers
+socket.on('currentPlayers', (players) => {
+    const playerInfo = players[socket.id];
+    
+    if (playerInfo) {
+        player = createPlayerSprite(playerInfo);
+        playerNameInput.value = playerInfo.name;
+        
+        // Add other existing players
+        Object.keys(players).forEach((id) => {
+            if (id !== socket.id) {
+                otherPlayers[id] = createPlayerSprite(players[id]);
+            }
+        });
+        
+        updatePlayerCount();
+        showNameInputDialog();
+        setTimeout(showInteractionTutorial, 3000);
+    }
+});
+
+socket.on('newPlayer', (playerInfo) => {
+    otherPlayers[playerInfo.id] = createPlayerSprite(playerInfo);
+    updatePlayerCount();
+});
+
+socket.on('playerMoved', (playerInfo) => {
+    const otherPlayer = otherPlayers[playerInfo.id];
+    if (otherPlayer) {
+        otherPlayer.position = playerInfo.position;
+        otherPlayer.setDirection(playerInfo.direction);
+        otherPlayer.moving = playerInfo.moving;
+    }
+});
+
+socket.on('playerUpdated', (playerInfo) => {
+    if (playerInfo.id === socket.id) {
+        player.name = playerInfo.name;
+    } else if (otherPlayers[playerInfo.id]) {
+        otherPlayers[playerInfo.id].name = playerInfo.name;
+    }
+});
+
+socket.on('playerDisconnected', (playerId) => {
+    delete otherPlayers[playerId];
+    updatePlayerCount();
+});
+
+socket.on('playerInteractionResponse', () => {
+    // Handler kept for future implementation
+});
+
+// Game Loop
+function animate() {
+    requestAnimationFrame(animate);
+
+    // Only proceed if player is initialized
+    if (!player) return;
+
+    // Save current transformation state
+    ctx.save();
+    
+    // Apply camera transform
+    ctx.setTransform(camera.zoom, 0, 0, camera.zoom, -camera.x * camera.zoom, -camera.y * camera.zoom);
+    
+    // Draw repeating background pattern first
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform temporarily
+    
+    // Fill the entire visible canvas with the background pattern
+    if (bgPattern) {
+        ctx.fillStyle = bgPattern;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+        // Fallback if pattern isn't loaded
+        ctx.fillStyle = '#a5d6a7'; // Light green background
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    // Restore the camera transform
+    ctx.restore();
+    
+    // Draw the main map
+    ctx.drawImage(mapImage, 0, 0, mapBounds.width, mapBounds.height);
+    
+    // Handle player movement
+    player.moving = false;
+    
+    for (const { key, dx, dy, dir } of movementDirections) {
+        if (keys[key]) {
+            const newX = player.position.x + dx * player.speed;
+            const newY = player.position.y + dy * player.speed;
+            
+            if (!checkCollision(newX, newY)) {
+                player.position.x = newX;
+                player.position.y = newY;
+                player.setDirection(dir);
+                player.moving = true;
+                
+                // Emit player position to server
+                socket.emit('playerMovement', {
+                    position: player.position,
+                    direction: player.lastDirection,
+                    moving: true
+                });
+                
+                // Close interaction menu when moving
+                if (player.showInteractionMenu) {
+                    player.showInteractionMenu = false;
+                    player.interactingWith = null;
+                }
+                
+                break; // Stop checking further if movement is detected
+            }
+        }
+    }
+
+    // Check for nearby players
+    checkNearbyPlayers();
+
+    // Update camera position to follow player
+    camera.x = player.position.x - canvas.width / (2 * camera.zoom);
+    camera.y = player.position.y - canvas.height / (2 * camera.zoom);
+
+    // Draw all other players
+    Object.values(otherPlayers).forEach(otherPlayer => {
+        otherPlayer.draw();
+    });
+    
+    // Draw the local player
+    player.draw();
+
+    // Restore the original transformation state
+    ctx.restore();
+}
+
+// Start Game Loop when map is loaded
+mapImage.onload = () => {
+    if (socket.connected) {
+        animate();
+    } else {
+        socket.on('connect', animate);
+    }
+};

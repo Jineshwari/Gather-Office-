@@ -5,52 +5,335 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multiplayer Office Game</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
+        
+        :root {
+            --primary-color: #4a6cf7;
+            --primary-hover: #3654d9;
+            --success-color: #02cd82;
+            --gradient-start: #1e293b;
+            --gradient-end: #0f172a;
+            --accent-color: #f97b7b;
+            --text-light: #f8fafc;
+            --text-muted: #cbd5e1;
+            --card-bg: rgba(15, 23, 42, 0.85);
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
         body {
             margin: 0;
             padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            background-color: #333;
-            font-family: Arial, sans-serif;
-        }
-        #gameContainer {
+            min-height: 100vh;
+            background: radial-gradient(ellipse at bottom, var(--gradient-start), var(--gradient-end));
+            font-family: 'Montserrat', sans-serif;
+            color: var(--text-light);
+            overflow: hidden;
             position: relative;
         }
-        #gameCanvas {
-            border: 2px solid #fff;
-        }
-        #playerNameInput {
+        
+        /* Background particles effect */
+        .particle {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            padding: 5px;
+            border-radius: 50%;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        
+        #gameWrapper {
+            position: relative;
             z-index: 10;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            border: 1px solid #444;
         }
-        #playerCount {
+        
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(74, 108, 247, 0.2);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        #gameContainer:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(74, 108, 247, 0.3);
+        }
+        
+        #gameCanvas {
+            border: none;
+            border-radius: 12px;
+            display: block;
+        }
+        
+        #headerBar {
             position: absolute;
-            top: 10px;
-            right: 10px;
-            padding: 5px;
-            background: rgba(0, 0, 0, 0.7);
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            z-index: 20;
+        }
+        
+        #gameLogo {
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--text-light);
+            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+        
+        #gameLogo::before {
+            content: "🏢";
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        #playerControls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        #playerNameInput {
+            padding: 8px 12px;
+            background: rgba(15, 23, 42, 0.5);
             color: white;
-            border-radius: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            outline: none;
+            width: 180px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        #playerNameInput:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.3);
+        }
+        
+        #playerNameInput::placeholder {
+            color: var(--text-muted);
+        }
+        
+        #playerCount {
+            padding: 6px 12px;
+            background: rgba(74, 108, 247, 0.15);
+            color: var(--text-light);
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            border: 1px solid rgba(74, 108, 247, 0.3);
+        }
+        
+        #playerCount::before {
+            content: "👥";
+            margin-right: 8px;
+            font-size: 16px;
+        }
+        
+        /* Controls and info panel */
+        #gameControls {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            right: 15px;
+            padding: 10px 15px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            transform: translateY(0);
+            opacity: 0.9;
+            z-index: 20;
+        }
+        
+        #gameControls:hover {
+            opacity: 1;
+            transform: translateY(-2px);
+        }
+        
+        #controlsInfo {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        
+        #controlsInfo strong {
+            color: var(--text-light);
+            font-weight: 500;
+        }
+        
+        #gameStatus {
+            padding: 5px 10px;
+            background: rgba(2, 205, 130, 0.15);
+            color: var(--success-color);
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            border: 1px solid rgba(2, 205, 130, 0.3);
+        }
+        
+       
+        @keyframes soft-float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0px); }
+        }
+        
+        #gameContainer {
+            animation: soft-float 5s infinite ease-in-out;
+        }
+        
+        /* Add shine effect */
+        #gameContainer::after {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                to bottom right,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0) 40%,
+                rgba(255, 255, 255, 0.1) 50%,
+                rgba(255, 255, 255, 0) 60%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            transform: rotate(45deg);
+            pointer-events: none;
+            z-index: 10;
+            transition: all 0.7s ease-in-out;
+            animation: shine 6s infinite ease-in-out;
+        }
+        
+        @keyframes shine {
+            0% { top: -50%; left: -50%; }
+            100% { top: 150%; left: 150%; }
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            #headerBar {
+                flex-direction: column;
+                height: auto;
+                padding: 10px 15px;
+                gap: 10px;
+            }
+            
+            #playerControls {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            #playerNameInput {
+                width: 140px;
+            }
+            
+            #gameControls {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+        }
+        
+        /* Initialize particles with JavaScript */
+        #particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
-    <div id="gameContainer">
-        <canvas id="gameCanvas"></canvas>
-        <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="15">
-        <div id="playerCount">Players: 1</div>
+    <div id="particles"></div>
+    
+    <div id="gameWrapper">
+        <div id="gameContainer">
+            <div id="headerBar">
+                <div id="gameLogo">Virtual Office</div>
+                <div id="playerControls">
+                    <input type="text" id="playerNameInput" placeholder="Enter your name" maxlength="15">
+                    <div id="playerCount">Players: 1</div>
+                </div>
+            </div>
+            
+            <canvas id="gameCanvas"></canvas>
+            
+           
+        </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="collisions.js"></script>
     <script type="module" src="game.js"></script>
+    
+    <script>
+        // Create animated background particles
+        document.addEventListener('DOMContentLoaded', function() {
+            const particlesContainer = document.getElementById('particles');
+            const colors = ['#4a6cf7', '#f97b7b', '#02cd82'];
+            
+            // Create particles
+            for (let i = 0; i < 50; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                
+                // Random properties
+                const size = Math.random() * 5 + 1;
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                
+                // Position
+                const left = Math.random() * 100;
+                const top = Math.random() * 100;
+                
+                // Styling
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.backgroundColor = color;
+                particle.style.left = `${left}%`;
+                particle.style.top = `${top}%`;
+                
+                // Animation
+                const duration = Math.random() * 50 + 10;
+                const delay = Math.random() * 5;
+                
+                particle.style.animation = `soft-float ${duration}s infinite ease-in-out ${delay}s alternate`;
+                
+                particlesContainer.appendChild(particle);
+            }
+        });
+    </script>
 </body>
 </html>
